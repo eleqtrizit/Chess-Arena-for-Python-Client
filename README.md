@@ -99,7 +99,7 @@ That's it! The Chess Arena client handles all networking, game management, and b
 
 **Note:** If you don't specify `--strategy`, the client will use the default built-in strategy from `strategy.py`.
 
-<br><br>
+<br>
 
 ### ⚠️ IMPORTANT: Server may have a time limit!
 
