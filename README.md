@@ -84,7 +84,8 @@ Run it:
 chess-arena-client --strategy my_strategy.py
 ```
 
-Naive [my_strategy.py](chess_arena_client/my_strategy.py) can be found here.
+Naive and easy-to-read [my_strategy.py](chess_arena_client/my_strategy.py) can be found here.  Or view the working, more complex
+strategy found in [strategy.py](chess_arena_client/strategy.py)
 
 <br>
 
