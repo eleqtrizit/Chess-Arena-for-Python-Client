@@ -10,9 +10,8 @@ This guide explains how to create your own chess AI by implementing a custom `St
 5. [The StrategyBase Class](#the-strategybase-class)
 6. [The choose_move Method](#the-choose_move-method)
 7. [Working with the chess.Board Object](#working-with-the-chessboard-object)
-8. [Example: Random Strategy](#example-random-strategy)
-9. [Tips for Building Your Strategy](#tips-for-building-your-strategy)
-10. [Next Steps](#next-steps)
+8. [Tips for Building Your Strategy](#tips-for-building-your-strategy)
+9. [Next Steps](#next-steps)
 
 ---
 
@@ -31,19 +30,19 @@ Install client:
 uv tool install git+https://github.com/eleqtrizit/Chess-Arena-for-Python-Client
 ```
 
-Start server in one terminal:
+**Terminal 1:**
 ```
 chess-arena --search-time 3
 ```
 
-Start player 1 in another terminal:
-```
-chess-arena-client --auth-file player1
+**Terminal 2:**
+```bash
+chess-arena-client --auth-file .player1
 ```
 
-Start player 1 in a third terminal:
-```
-chess-arena-client --auth-file player2
+**Terminal 3:**
+```bash
+chess-arena-client --auth-file .player2
 ```
 
 Watch the action!
@@ -82,7 +81,7 @@ class Strategy(StrategyBase):
 
 Run it:
 ```bash
-python -m chess_arena_client --strategy my_strategy.py
+chess-arena-client --strategy my_strategy.py
 ```
 
 Naive [my_strategy.py](chess_arena_client/my_strategy.py) can be found here.
@@ -108,7 +107,7 @@ There may be a **strict time limit** per move.  <font color=orange>You could be 
 You can simulate this with the `--search-time` parameter:
 
 ```bash
-python -m chess_arena_client --search-time 5.0  # 5 seconds per move
+chess-arena-client --search-time 5.0  # 5 seconds per move
 ```
 
 Use this parameter to make sure your strategies are able to return a result under the time limit.  See [Time Management Example](#time-management-example)
@@ -500,55 +499,6 @@ def choose_move(self, board, legal_moves, player_color):
 
 ---
 
-## Example: Random Strategy
-
-Here's a complete, working strategy that randomly selects moves:
-
-```python
-#!/usr/bin/env python3
-import random
-from typing import List
-import chess
-from strategy_base import StrategyBase
-
-
-class RandomStrategy(StrategyBase):
-    """
-    A naive strategy that randomly selects from available legal moves.
-    """
-
-    def choose_move(self, board: chess.Board, legal_moves: List[str],
-                    player_color: str) -> str:
-        """
-        Randomly select one move from the list of legal moves.
-
-        :param board: Current board position
-        :param legal_moves: Pre-validated list of legal moves in SAN notation
-        :param player_color: Our assigned color, "white" or "black"
-        :return: One randomly selected move
-        """
-        # Safety check: Ensure we have at least one legal move
-        if not legal_moves:
-            raise Exception("No legal moves available - game should be over!")
-
-        # Use Python's random.choice() to pick one move
-        selected_move = random.choice(legal_moves)
-
-        print(f"RandomStrategy selected: {selected_move} from {len(legal_moves)} options")
-
-        return selected_move
-```
-
-### How to Use This Strategy
-
-1. Save the above code as `random_strategy.py`
-2. Run the client with your custom strategy:
-   ```bash
-   python -m chess_arena_client --strategy random_strategy.py --search-time 1.0
-   ```
-
----
-
 ## Tips for Building Your Strategy
 
 ### Start Simple, Then Improve
@@ -662,20 +612,23 @@ def choose_move(self, board, legal_moves, player_color):
     return move
 ```
 
-
-
 ### Play Against Itself
 
 Run two clients simultaneously to watch your strategy play:
 
 **Terminal 1:**
-```bash
-python -m chess_arena_client --strategy my_strategy.py --search-time 1.0 --auth-file .player1
+```
+chess-arena --search-time 3
 ```
 
 **Terminal 2:**
 ```bash
-python -m chess_arena_client --strategy other_strategy.py --search-time 5.0 --auth-file .player2
+chess-arena-client --strategy my_strategy.py --auth-file .player1
+```
+
+**Terminal 3:**
+```bash
+chess-arena-client --strategy other_strategy.py --auth-file .player2
 ```
 
 ### Play Against Other Strategies
@@ -702,50 +655,5 @@ python -m chess_arena_client --strategy other_strategy.py --search-time 5.0 --au
 
 ---
 
-## Complete Template
-
-Copy this template to start your own strategy:
-
-```python
-#!/usr/bin/env python3
-"""
-My custom chess strategy.
-"""
-
-from typing import List
-import chess
-from strategy_base import StrategyBase
-
-
-class Strategy(StrategyBase):
-    """
-    Describe what your strategy does here.
-
-    :param search_time: Maximum time in seconds for move search
-    :type search_time: float
-    """
-
-    def __init__(self, search_time: float):
-        super().__init__(search_time)
-        # Add any custom initialization here
-
-    def choose_move(self, board: chess.Board, legal_moves: List[str],
-                    player_color: str) -> str:
-        """
-        Choose the best move for the current position.
-
-        :param board: Current board position
-        :type board: chess.Board
-        :param legal_moves: List of legal moves in SAN notation
-        :type legal_moves: List[str]
-        :param player_color: Our color ("white" or "black")
-        :type player_color: str
-        :return: Selected move in SAN notation
-        :rtype: str
-        """
-        # YOUR LOGIC HERE
-        # For now, just return the first legal move
-        return legal_moves[0]
-```
 
 **Good luck building your chess AI! 🎯♟️**
