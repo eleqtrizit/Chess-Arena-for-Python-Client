@@ -1,6 +1,4 @@
-def main():
-    print("Hello from chess-arena-client!")
-
+from chess_arena_client.main import main
 
 if __name__ == "__main__":
     main()
