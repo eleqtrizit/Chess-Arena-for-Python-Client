@@ -20,6 +20,12 @@ This guide explains how to create your own chess AI by implementing a custom `St
 
 Install uv: https://docs.astral.sh/uv/getting-started/installation/
 
+Install server:
+[https://github.com/eleqtrizit/Chess-Arena-for-Python](https://github.com/eleqtrizit/Chess-Arena-for-Python)
+```
+uv tool install git+https://github.com/eleqtrizit/Chess-Arena-for-Python
+```
+
 Install client:
 ```
 uv tool install git+https://github.com/eleqtrizit/Chess-Arena-for-Python-Client
