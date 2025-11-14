@@ -70,4 +70,3 @@ class Strategy(StrategyBase):
         # Return the move in SAN notation (e.g., "e4", "Nf3", "O-O")
         # The ChessClient will send this to the server
         return selected_move
-        return selected_move

@@ -3,41 +3,93 @@
 This guide explains how to create your own chess AI by implementing a custom `Strategy` class that works with the Chess Arena server.
 
 ## Table of Contents
-1. [Quick Start](#quick-start)
-2. [Understanding Standard Algebraic Notation (SAN)](#understanding-standard-algebraic-notation-san)
-3. [The StrategyBase Class](#the-strategybase-class)
-4. [The choose_move Method](#the-choose_move-method)
-5. [Working with the chess.Board Object](#working-with-the-chessboard-object)
-6. [Example: Random Strategy](#example-random-strategy)
-7. [Tips for Building Your Strategy](#tips-for-building-your-strategy)
-8. [Next Steps](#next-steps)
+1. [Quick Start Demo](#quick-start)
+2. [Quick Start Development](#quick-start-development)
+3. [Debugging with VSCode/Cursor](#debugging-with-vscodecursor)
+4. [Understanding Standard Algebraic Notation (SAN)](#understanding-standard-algebraic-notation-san)
+5. [The StrategyBase Class](#the-strategybase-class)
+6. [The choose_move Method](#the-choose_move-method)
+7. [Working with the chess.Board Object](#working-with-the-chessboard-object)
+8. [Example: Random Strategy](#example-random-strategy)
+9. [Tips for Building Your Strategy](#tips-for-building-your-strategy)
+10. [Next Steps](#next-steps)
 
 ---
 
-## Quick Start
+## Quick Start Demo
+
+Install uv: https://docs.astral.sh/uv/getting-started/installation/
+
+Install client:
+```
+uv tool install git+https://github.com/eleqtrizit/Chess-Arena-for-Python-Client
+```
+
+Start server in one terminal:
+```
+chess-arena --search-time 3
+```
+
+Start player 1 in another terminal:
+```
+chess-arena-client --auth-file player1
+```
+
+Start player 1 in a third terminal:
+```
+chess-arena-client --auth-file player2
+```
+
+## Quick Start Development
+Install uv: https://docs.astral.sh/uv/getting-started/installation/
+
+```sh
+# create folder
+mkdir mybot
+
+# setup venv
+uv venv
+
+# install client libs
+uv uv pip install git+https://github.com/eleqtrizit/Chess-Arena-for-Python-Client
+```
+Create a new Python file (e.g., `my_strategy.py`)
+```python
+#!/usr/bin/env python3
+import chess
+import random
+from typing import List
+from chess_arena_client.strategy_base import StrategyBase
+
+import chess
+
+from chess_arena_client.strategy_base import StrategyBase
 
 
+class Strategy(StrategyBase):
+    def choose_move(self, board: chess.Board, legal_moves: List[str], player_color: str) -> str:
+        # ... your code goes here
+        return selected_move
+```
 
-**Minimum steps to create a working strategy:**
+Run it:
+```bash
+python -m chess_arena_client --strategy my_strategy.py
+```
 
-1. Create a new Python file (e.g., `my_strategy.py`)
-2. Import the required modules:
-   ```python
-   from typing import List
-   import chess
-   from chess_arena_client.strategy_base import StrategyBase
-   ```
-3. Create a class named `Strategy` that inherits from `StrategyBase`
-4. Implement the `choose_move()` method
-5. Return a move in SAN notation (e.g., `"e4"`, `"Nf3"`, `"O-O"`)
-6. Run the client with your custom strategy:
-    ```bash
-    python -m chess_arena_client --strategy my_strategy.py
-    ```
+Naive [my_strategy.py](chess_arena_client/my_strategy.py) can be found here.
+
+## Debugging with VSCode/Cursor
+
+Copy this repo's [launch.json](.vsocde/launch.json) into your setup.
+
+<br>
 
 That's it! The Chess Arena client handles all networking, game management, and board synchronization.
 
 **Note:** If you don't specify `--strategy`, the client will use the default built-in strategy from `strategy.py`.
+
+<br><br>
 
 ### ⚠️ IMPORTANT: Server may have a time limit!
 
@@ -626,7 +678,7 @@ python -m chess_arena_client --strategy other_strategy.py --search-time 5.0 --au
 
 ## Next Steps
 
-1. **Read the Example**: Study [strategy_example_random.py](strategy_example_random.py) for a complete working example
+1. **Read the Example**: Study [my_strategy.py](my_strategy.py) for a complete working example
 2. **Implement Your Strategy**: Create a new file and start with random moves
 3. **Test It**: Run against itself to verify it works
 4. **Improve Gradually**: Add one feature at a time (captures, center control, etc.)
