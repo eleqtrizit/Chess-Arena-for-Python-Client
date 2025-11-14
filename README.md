@@ -87,6 +87,10 @@ chess-arena-client --strategy my_strategy.py
 Naive and easy-to-read [my_strategy.py](chess_arena_client/my_strategy.py) can be found here.  Or view the working, more complex
 strategy found in [strategy.py](chess_arena_client/strategy.py)
 
+That's it! The Chess Arena client handles all networking, game management, and board synchronization.
+
+**Note:** If you don't specify `--strategy`, the client will use the default built-in strategy from `strategy.py`.
+
 <br>
 
 ## Debugging with VSCode/Cursor
@@ -95,9 +99,7 @@ Copy this repo's [launch.json](.vsocde/launch.json) into your setup.
 
 <br>
 
-That's it! The Chess Arena client handles all networking, game management, and board synchronization.
 
-**Note:** If you don't specify `--strategy`, the client will use the default built-in strategy from `strategy.py`.
 
 <br>
 
