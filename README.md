@@ -10,31 +10,34 @@ This guide explains how to create your own chess AI by implementing a custom `St
 5. [Working with the chess.Board Object](#working-with-the-chessboard-object)
 6. [Example: Random Strategy](#example-random-strategy)
 7. [Tips for Building Your Strategy](#tips-for-building-your-strategy)
-8. [Testing Your Strategy](#testing-your-strategy)
+8. [Next Steps](#next-steps)
 
 ---
 
 ## Quick Start
 
+
+
 **Minimum steps to create a working strategy:**
 
-1. Create a new Python file in the `demos/` directory (e.g., `my_strategy.py`)
+1. Create a new Python file (e.g., `my_strategy.py`)
 2. Import the required modules:
    ```python
    from typing import List
    import chess
-   from strategy_base import StrategyBase
+   from chess_arena_client.strategy_base import StrategyBase
    ```
-3. Create a class that inherits from `StrategyBase`
+3. Create a class named `Strategy` that inherits from `StrategyBase`
 4. Implement the `choose_move()` method
 5. Return a move in SAN notation (e.g., `"e4"`, `"Nf3"`, `"O-O"`)
-6. Change chess_client to import from your new file
-    ```py
-    # from strategy import Strategy  <-- comment out
-    from my_strategy import Strategy # add 
+6. Run the client with your custom strategy:
+    ```bash
+    python -m chess_arena_client --strategy my_strategy.py
     ```
 
 That's it! The Chess Arena client handles all networking, game management, and board synchronization.
+
+**Note:** If you don't specify `--strategy`, the client will use the default built-in strategy from `strategy.py`.
 
 ### ⚠️ IMPORTANT: Server may have a time limit!
 
@@ -43,7 +46,7 @@ There may be a **strict time limit** per move.  <font color=orange>You could be 
 You can simulate this with the `--search-time` parameter:
 
 ```bash
-python demos/chess_client.py --search-time 5.0  # 5 seconds per move
+python -m chess_arena_client --search-time 5.0  # 5 seconds per move
 ```
 
 Use this parameter to make sure your strategies are able to return a result under the time limit.  See [Time Management Example](#time-management-example)
@@ -476,14 +479,10 @@ class RandomStrategy(StrategyBase):
 
 ### How to Use This Strategy
 
-1. Save the above code as `demos/random_strategy.py`
-2. Update `demos/chess_client.py` to import your strategy:
-   ```python
-   from random_strategy import RandomStrategy as Strategy
-   ```
-3. Run the client:
+1. Save the above code as `random_strategy.py`
+2. Run the client with your custom strategy:
    ```bash
-   python demos/chess_client.py --search-time 1.0
+   python -m chess_arena_client --strategy random_strategy.py --search-time 1.0
    ```
 
 ---
@@ -609,18 +608,18 @@ Run two clients simultaneously to watch your strategy play:
 
 **Terminal 1:**
 ```bash
-python demos/chess_client.py --search-time 1.0 --auth-file .player1
+python -m chess_arena_client --strategy my_strategy.py --search-time 1.0 --auth-file .player1
 ```
 
 **Terminal 2:**
 ```bash
-python demos/chess_client.py --search-time 5.0 --auth-file .player2
+python -m chess_arena_client --strategy other_strategy.py --search-time 5.0 --auth-file .player2
 ```
 
 ### Play Against Other Strategies
 
 1. Create multiple strategy implementations
-2. Run clients with different strategies imported
+2. Run clients with different strategies using the `--strategy` flag
 3. Watch them compete!
 
 ---

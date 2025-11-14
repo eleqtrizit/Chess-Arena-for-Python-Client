@@ -9,8 +9,10 @@ Strategy for move selection is injected as a dependency.
 import argparse
 import asyncio
 import glob
+import importlib.util
 import json
 import os
+import sys
 import time
 from pathlib import Path
 from typing import Any, Dict, Optional, Tuple
@@ -19,7 +21,6 @@ import chess
 import websockets
 from rich.console import Console
 
-from chess_arena_client.strategy import Strategy
 from chess_arena_client.strategy_base import StrategyBase
 
 # Color configuration for board display
@@ -586,6 +587,38 @@ class ChessClient:
             console.print(f"[red]✗ Connection error:[/red] {e}")
 
 
+def load_strategy_from_file(file_path: str, search_time: float) -> StrategyBase:
+    """
+    Dynamically load a Strategy class from a Python file.
+
+    :param file_path: Path to the strategy file
+    :type file_path: str
+    :param search_time: Maximum search time per move in seconds
+    :type search_time: float
+    :return: Strategy instance
+    :rtype: StrategyBase
+    :raises ImportError: If the strategy file cannot be loaded
+    :raises AttributeError: If the Strategy class is not found
+    """
+    try:
+        spec = importlib.util.spec_from_file_location("strategy_module", file_path)
+        if spec is None or spec.loader is None:
+            raise ImportError(f"Cannot load module from {file_path}")
+
+        module = importlib.util.module_from_spec(spec)
+        sys.modules["strategy_module"] = module
+        spec.loader.exec_module(module)
+
+        if not hasattr(module, 'Strategy'):
+            raise AttributeError(f"Strategy class not found in {file_path}")
+
+        strategy_class = getattr(module, 'Strategy')
+        return strategy_class(search_time=search_time)
+    except Exception as e:
+        console.print(f"[red]✗ Error loading strategy from {file_path}:[/red] {e}")
+        raise
+
+
 def main() -> None:
     """
     Parse command-line arguments and start the chess client.
@@ -599,13 +632,22 @@ def main() -> None:
                         help='Continue from the most recent saved game using auth token')
     parser.add_argument('--auth-file', type=str, default=None,
                         help='Path to file for storing/loading auth token (JSON format)')
+    parser.add_argument('--strategy', type=str, default=None,
+                        help='Path to custom strategy file (default: uses built-in strategy.py)')
 
     args = parser.parse_args()
 
     server_url = f"http://localhost:{args.port}"
 
-    # Create strategy instance
-    strategy = Strategy(search_time=args.search_time)
+    # Load strategy from file or use default
+    if args.strategy:
+        strategy = load_strategy_from_file(args.strategy, args.search_time)
+        console.print(f"[cyan]Using custom strategy:[/cyan] {args.strategy}")
+    else:
+        # Use default strategy.py from the package
+        from chess_arena_client.strategy import Strategy
+        strategy = Strategy(search_time=args.search_time)
+        console.print("[cyan]Using default strategy[/cyan]")
 
     # If --continue flag is set, try to load auth token
     if args.continue_game:
