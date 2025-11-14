@@ -46,6 +46,8 @@ Start player 1 in a third terminal:
 chess-arena-client --auth-file player2
 ```
 
+Watch the action!
+
 ## Quick Start Development
 Install uv: https://docs.astral.sh/uv/getting-started/installation/
 
@@ -57,7 +59,7 @@ mkdir mybot
 uv venv
 
 # install client libs
-uv uv pip install git+https://github.com/eleqtrizit/Chess-Arena-for-Python-Client
+uv pip install git+https://github.com/eleqtrizit/Chess-Arena-for-Python-Client
 ```
 Create a new Python file (e.g., `my_strategy.py`)
 ```python
@@ -84,6 +86,8 @@ python -m chess_arena_client --strategy my_strategy.py
 ```
 
 Naive [my_strategy.py](chess_arena_client/my_strategy.py) can be found here.
+
+<br>
 
 ## Debugging with VSCode/Cursor
 
