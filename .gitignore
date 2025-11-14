@@ -9,6 +9,9 @@ wheels/
 .pytest_cache
 .claude
 .python-version
+.*_auth
+.player1
+.player2
 
 # Virtual environments
 .env
