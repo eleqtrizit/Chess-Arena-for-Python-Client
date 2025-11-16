@@ -76,7 +76,7 @@ import chess
 from chess_arena_client.strategy_base import StrategyBase
 
 
-class Strategy(StrategyBase):
+class Strategy(StrategyBase):  ## must be named Strategy !!!!
     def choose_move(self, board: chess.Board, legal_moves: List[str], player_color: str) -> str:
         # ... your code goes here
         return selected_move
@@ -93,6 +93,16 @@ strategy found in [strategy.py](chess_arena_client/strategy.py)
 That's it! The Chess Arena client handles all networking, game management, and board synchronization.
 
 **Note:** If you don't specify `--strategy`, the client will use the default built-in strategy from `strategy.py`.
+
+### <font color="yellow">Testing Your Strategy</font>
+
+You can test your strategy against predefined game states using the Chess Arena Client Tester:
+
+```bash
+chess-arena-client-tester --strategy my_strategy.py
+```
+
+See [TESTER.md](TESTER.md) for comprehensive documentation on using the tester.
 
 <br>
 

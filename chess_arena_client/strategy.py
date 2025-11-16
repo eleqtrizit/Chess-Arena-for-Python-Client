@@ -351,4 +351,3 @@ class Strategy(StrategyBase):
                 break
 
         return best_move_san
-        return best_move_san

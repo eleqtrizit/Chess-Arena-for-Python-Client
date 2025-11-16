@@ -14,8 +14,13 @@ dependencies = [
     "websockets>=13.0.0",
 ]
 
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["chess_arena_client*"]
+
 [project.scripts]
 chess-arena-client = "chess_arena_client.main:main"
+chess-arena-client-tester = "chess_arena_client.tester:main"
 
 [dependency-groups]
 dev = [
