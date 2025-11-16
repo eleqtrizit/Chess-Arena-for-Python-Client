@@ -46,6 +46,9 @@ chess-arena-client --auth-file .player2
 ```
 
 Watch the action!
+![Chess Arena Client](assets/chess_client.png)
+
+
 
 ## Quick Start Development
 Install uv: https://docs.astral.sh/uv/getting-started/installation/
