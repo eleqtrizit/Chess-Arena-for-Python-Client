@@ -1,7 +1,7 @@
 {
   "passed": 3,
   "failed": 0,
-  "timeouts": 3,
+  "timeouts": 0,
   "total_tests": 3,
   "sampled": true,
   "original_total_tests": 51

@@ -186,6 +186,11 @@ def main() -> None:
         action='store_true',
         help='Output the AGENT.md prompt to STDOUT (not compatible with other flags)'
     )
+    parser.add_argument(
+        '--test-data-path',
+        type=str,
+        help='Path to custom test data file (default: packaged test_data/game_states.jsonl)'
+    )
 
     args = parser.parse_args()
 
@@ -217,7 +222,17 @@ def main() -> None:
         sys.exit(1)
 
     # Load test data
-    test_data_path = Path("test_data/game_states.jsonl")
+    if args.test_data_path:
+        test_data_path = Path(args.test_data_path)
+    else:
+        # Try packaged data first
+        packaged_data = Path(__file__).parent / "test_data" / "game_states.jsonl"
+        if packaged_data.exists():
+            test_data_path = packaged_data
+        else:
+            # Fall back to current directory
+            test_data_path = Path("test_data/game_states.jsonl")
+
     if not test_data_path.exists():
         console.print(f"[red]✗ Test data file not found:[/red] {test_data_path}")
         console.print("[yellow]Please ensure test_data/game_states.jsonl exists.[/yellow]")
