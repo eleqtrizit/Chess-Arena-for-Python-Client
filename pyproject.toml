@@ -26,7 +26,7 @@ where = ["."]
 include = ["chess_arena_client*"]
 
 [tool.setuptools.package-data]
-chess-arena-client = ["*.md"]
+chess_arena_client = ["*.md"]
 "*" = ["*.md"]
 
 [project.scripts]
