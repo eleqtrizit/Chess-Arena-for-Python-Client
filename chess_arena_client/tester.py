@@ -168,7 +168,6 @@ def main() -> None:
     parser.add_argument(
         '--strategy',
         type=str,
-        required=True,
         help='Path to custom strategy file containing a Strategy class'
     )
     parser.add_argument(
@@ -182,8 +181,31 @@ def main() -> None:
         type=int,
         help='Run only a random sample of N tests instead of all tests'
     )
+    parser.add_argument(
+        '--get-agent-prompt',
+        action='store_true',
+        help='Output the AGENT.md prompt to STDOUT (not compatible with other flags)'
+    )
 
     args = parser.parse_args()
+
+    # Handle --get-agent-prompt flag
+    if args.get_agent_prompt:
+        agent_md_path = Path(__file__).parent.parent / "AGENT.md"
+        try:
+            with open(agent_md_path, 'r') as f:
+                print(f.read())
+            sys.exit(0)
+        except FileNotFoundError:
+            console.print(f"[red]✗ AGENT.md not found at:[/red] {agent_md_path}")
+            sys.exit(1)
+        except Exception as e:
+            console.print(f"[red]✗ Error reading AGENT.md:[/red] {e}")
+            sys.exit(1)
+
+    # Validate required arguments for normal operation
+    if not args.strategy:
+        parser.error("--strategy is required unless using --get-agent-prompt")
 
     console.print("[bold blue]♟ Chess Arena Client Tester[/bold blue]")
     console.print(f"[cyan]Strategy file:[/cyan] {args.strategy}")

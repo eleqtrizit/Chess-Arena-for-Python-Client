@@ -102,6 +102,21 @@ Run only a random sample of N tests instead of all tests:
 chess-arena-client-tester --strategy my_strategy.py --sample 10
 ```
 
+### --get-agent-prompt (standalone)
+Output the AGENT.md prompt to STDOUT. This flag is not compatible with other options and is designed for piping to LLMs or saving to files:
+```bash
+# Output to console
+chess-arena-client-tester --get-agent-prompt
+
+# Pipe to an LLM
+chess-arena-client-tester --get-agent-prompt | llm-tool
+
+# Save to a file
+chess-arena-client-tester --get-agent-prompt > prompt.txt
+```
+
+The AGENT.md file contains a comprehensive prompt for LLMs to learn how to write chess strategies for the competition.
+
 ## Output Format
 
 The tester provides real-time feedback during testing:
