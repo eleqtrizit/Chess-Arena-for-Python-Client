@@ -195,14 +195,21 @@ class ChessClient:
     :type continue_game: bool
     :param auth_file: Optional path to JSON file for storing/loading auth token
     :type auth_file: Optional[str]
+    :param max_reconnect_attempts: Maximum number of reconnection attempts
+    :type max_reconnect_attempts: int
+    :param reconnect_delay: Initial delay between reconnection attempts in seconds
+    :type reconnect_delay: float
     """
 
     def __init__(self, server_url: str, strategy: StrategyBase, continue_game: bool = False,
-                 auth_file: Optional[str] = None):
+                 auth_file: Optional[str] = None, max_reconnect_attempts: int = 5,
+                 reconnect_delay: float = 1.0):
         self.server_url = server_url.replace('http://', 'ws://').replace('https://', 'wss://')
         self.strategy = strategy
         self.continue_game = continue_game
         self.auth_file = auth_file
+        self.max_reconnect_attempts = max_reconnect_attempts
+        self.reconnect_delay = reconnect_delay
         self.game_id: Optional[str] = None
         self.player_id: Optional[str] = None
         self.auth_token: Optional[str] = None
@@ -210,6 +217,66 @@ class ChessClient:
         self.local_board = chess.Board()
         self.websocket: Optional[websockets.WebSocketClientProtocol] = None
         self.message_queue: asyncio.Queue = asyncio.Queue()
+
+        # Health check attributes
+        self.last_heartbeat_response = time.time()
+        self.heartbeat_interval = 30  # seconds
+        self.heartbeat_timeout = 60   # seconds
+        self.health_check_enabled = True
+
+    async def reconnect_and_sync(self, reconnect_attempt: int = 0) -> bool:
+        """
+        Reconnect to the WebSocket and sync board state.
+
+        :param reconnect_attempt: Current reconnection attempt number
+        :type reconnect_attempt: int
+        :return: True if it's our turn after syncing, False otherwise
+        :rtype: bool
+        :raises Exception: If reconnection fails after max attempts
+        """
+        try:
+            # Close existing websocket if it exists
+            if self.websocket:
+                await self.websocket.close()
+
+            # Reset health check attributes
+            self.last_heartbeat_response = time.time()
+            self.health_check_enabled = True
+
+            # Reconnect to WebSocket
+            console.print("[dim]Reconnecting to server...[/dim]")
+            async with websockets.connect(self.server_url + "/ws") as websocket:
+                self.websocket = websocket
+
+                # Restart background tasks
+                # Cancel existing tasks first
+                if hasattr(self, '_receive_task') and not self._receive_task.done():
+                    self._receive_task.cancel()
+                if hasattr(self, '_heartbeat_task') and not self._heartbeat_task.done():
+                    self._heartbeat_task.cancel()
+                if hasattr(self, '_health_monitor_task') and not self._health_monitor_task.done():
+                    self._health_monitor_task.cancel()
+
+                # Start new background tasks
+                self._receive_task = asyncio.create_task(self.receive_messages())
+                self._heartbeat_task = asyncio.create_task(self.send_heartbeat())
+                self._health_monitor_task = asyncio.create_task(self.monitor_connection_health())
+
+                # Sync board state
+                return await self.sync_board_state(reconnect_attempt)
+
+        except Exception as e:
+            if reconnect_attempt < self.max_reconnect_attempts:
+                console.print(f"[yellow]⚠ Reconnection failed:[/yellow] {str(e)}")
+                console.print(f"[yellow]Attempt {reconnect_attempt + 1}/{self.max_reconnect_attempts}...[/yellow]")
+                # Exponential backoff
+                delay = self.reconnect_delay * (2 ** reconnect_attempt)
+                console.print(f"[dim]Waiting {delay:.1f}s before next attempt...[/dim]")
+                await asyncio.sleep(delay)
+                # Try again
+                return await self.reconnect_and_sync(reconnect_attempt + 1)
+            else:
+                raise Exception(f"Reconnection failed after {self.max_reconnect_attempts} attempts: {str(e)}")
 
     async def send_message(self, message: Dict[str, Any]) -> None:
         """
@@ -220,6 +287,36 @@ class ChessClient:
         """
         if self.websocket:
             await self.websocket.send(json.dumps(message))
+
+    async def send_heartbeat(self) -> None:
+        """
+        Send periodic heartbeat messages to maintain connection health.
+        """
+        while self.websocket and self.health_check_enabled:
+            try:
+                await self.send_message({"type": "health_check"})
+                await asyncio.sleep(self.heartbeat_interval)
+            except Exception:
+                break
+
+    async def monitor_connection_health(self) -> None:
+        """
+        Monitor connection health and detect timeouts.
+        """
+        while self.websocket and self.health_check_enabled:
+            try:
+                current_time = time.time()
+                if current_time - self.last_heartbeat_response > self.heartbeat_timeout:
+                    console.print("[red]✗ Server connection timeout - no response for health check[/red]")
+                    # Disable health checks to prevent further messages
+                    self.health_check_enabled = False
+                    # Close the websocket to trigger reconnection
+                    if self.websocket:
+                        await self.websocket.close()
+                    break
+                await asyncio.sleep(5)  # Check every 5 seconds
+            except Exception:
+                break
 
     async def receive_messages(self) -> None:
         """
@@ -233,6 +330,18 @@ class ChessClient:
         try:
             async for message in self.websocket:
                 data = json.loads(message)
+
+                # Handle server-initiated ping messages
+                if data.get("type") == "ping":
+                    # Respond immediately with pong
+                    await self.send_message({"type": "pong"})
+                    # Update heartbeat timestamp
+                    self.last_heartbeat_response = time.time()
+                    continue
+
+                # Update heartbeat timestamp for any message
+                self.last_heartbeat_response = time.time()
+
                 await self.message_queue.put(data)
         except websockets.exceptions.ConnectionClosed:
             console.print("[red]✗ Connection to server closed[/red]")
@@ -269,36 +378,73 @@ class ChessClient:
             except Exception as e:
                 console.print(f"[yellow]⚠ Failed to save auth token:[/yellow] {e}")
 
-    async def sync_board_state(self) -> bool:
+    async def sync_board_state(self, reconnect_attempt: int = 0) -> bool:
         """
         Request and sync current board state from server.
 
+        :param reconnect_attempt: Current reconnection attempt number (for backoff calculation)
+        :type reconnect_attempt: int
         :return: True if it's our turn after syncing, False otherwise
         :rtype: bool
-        :raises Exception: If sync fails
+        :raises Exception: If sync fails after max reconnection attempts
         """
-        await self.send_message({
-            "type": "get_board",
-            "game_id": self.game_id,
-            "player_id": self.player_id,
-            "auth_token": self.auth_token
-        })
+        try:
+            await self.send_message({
+                "type": "get_board",
+                "game_id": self.game_id,
+                "player_id": self.player_id,
+                "auth_token": self.auth_token
+            })
 
-        # Wait for board_state response
-        while True:
-            msg = await self.message_queue.get()
-            if msg.get("type") == "board_state":
-                fen = msg.get("fen")
-                if fen:
-                    self.local_board.set_fen(fen)
-                current_turn = msg.get("current_turn")
-                # Check if it's our turn
-                is_our_turn = current_turn == self.player_color
-                return is_our_turn
-            elif msg.get("type") == "error":
-                raise Exception(f"Board sync error: {msg.get('message')}")
-            await self.message_queue.put(msg)  # Put back if not for us
-            await asyncio.sleep(0.01)
+            # Wait for board_state response
+            while True:
+                msg = await self.message_queue.get()
+                if msg.get("type") == "board_state":
+                    fen = msg.get("fen")
+                    if fen:
+                        self.local_board.set_fen(fen)
+                    current_turn = msg.get("current_turn")
+                    # Check if it's our turn
+                    is_our_turn = current_turn == self.player_color
+                    return is_our_turn
+                elif msg.get("type") == "error":
+                    error_message = msg.get('message', 'Unknown error')
+                    # Check if this is a game cancellation error that might be recoverable
+                    if "Game cancelled" in error_message and "not responding" in error_message:
+                        if reconnect_attempt < self.max_reconnect_attempts:
+                            console.print(f"[yellow]⚠ Game sync error:[/yellow] {error_message}")
+                            console.print(
+                                f"[yellow]Attempt {reconnect_attempt + 1}/"
+                                f"{self.max_reconnect_attempts} to reconnect...[/yellow]")
+                            # Exponential backoff
+                            delay = self.reconnect_delay * (2 ** reconnect_attempt)
+                            console.print(f"[dim]Waiting {delay:.1f}s before reconnect attempt...[/dim]")
+                            await asyncio.sleep(delay)
+                            # Try to reconnect
+                            return await self.reconnect_and_sync(reconnect_attempt + 1)
+                        else:
+                            raise Exception(
+                                f"Board sync error after {self.max_reconnect_attempts} attempts: {error_message}")
+                    else:
+                        # For other errors, don't attempt reconnection
+                        raise Exception(f"Board sync error: {error_message}")
+                await self.message_queue.put(msg)  # Put back if not for us
+                await asyncio.sleep(0.01)
+        except Exception as e:
+            # If we get a connection error during sync, try to reconnect
+            if reconnect_attempt < self.max_reconnect_attempts:
+                console.print(f"[yellow]⚠ Connection error during sync:[/yellow] {str(e)}")
+                console.print(
+                    f"[yellow]Attempt {reconnect_attempt + 1}/{self.max_reconnect_attempts} to reconnect...[/yellow]")
+                # Exponential backoff
+                delay = self.reconnect_delay * (2 ** reconnect_attempt)
+                console.print(f"[dim]Waiting {delay:.1f}s before reconnect attempt...[/dim]")
+                await asyncio.sleep(delay)
+                # Try to reconnect
+                return await self.reconnect_and_sync(reconnect_attempt + 1)
+            else:
+                raise Exception(f"Board sync failed after {self.max_reconnect_attempts} "
+                                f"attempts: {str(e)}")
 
     async def run(self) -> None:
         """
@@ -315,7 +461,13 @@ class ChessClient:
                 self.websocket = websocket
 
                 # Start background task to receive messages
-                receive_task = asyncio.create_task(self.receive_messages())
+                self._receive_task = asyncio.create_task(self.receive_messages())
+
+                # Start heartbeat task for connection health
+                self._heartbeat_task = asyncio.create_task(self.send_heartbeat())
+
+                # Start connection health monitoring task
+                self._health_monitor_task = asyncio.create_task(self.monitor_connection_health())
 
                 # If continuing a game, skip matchmaking
                 if self.continue_game and self.game_id and self.player_id and self.auth_token:
@@ -579,7 +731,13 @@ class ChessClient:
                                 move_count += 1
                         continue
 
-                receive_task.cancel()
+                # Cancel background tasks
+                if hasattr(self, '_receive_task') and not self._receive_task.done():
+                    self._receive_task.cancel()
+                if hasattr(self, '_heartbeat_task') and not self._heartbeat_task.done():
+                    self._heartbeat_task.cancel()
+                if hasattr(self, '_health_monitor_task') and not self._health_monitor_task.done():
+                    self._health_monitor_task.cancel()
 
         except KeyboardInterrupt:
             console.print("\n[yellow]⚠ Client stopped by user[/yellow]")
@@ -636,6 +794,10 @@ def main() -> None:
                         help='Path to file for storing/loading auth token (JSON format)')
     parser.add_argument('--strategy', type=str, default=None,
                         help='Path to custom strategy file (default: uses built-in strategy.py)')
+    parser.add_argument('--max-reconnect-attempts', type=int, default=5,
+                        help='Maximum number of reconnection attempts (default: 5)')
+    parser.add_argument('--reconnect-delay', type=float, default=1.0,
+                        help='Initial delay between reconnection attempts in seconds (default: 1.0)')
 
     args = parser.parse_args()
 
@@ -663,7 +825,9 @@ def main() -> None:
             game_id, player_id, player_color, auth_token = auth_data
             console.print(f"[green]✓ Continuing as player {player_id}[/green]")
             # Create client with loaded auth data
-            client = ChessClient(server_url, strategy, continue_game=True, auth_file=args.auth_file)
+            client = ChessClient(server_url, strategy, continue_game=True, auth_file=args.auth_file,
+                                 max_reconnect_attempts=args.max_reconnect_attempts,
+                                 reconnect_delay=args.reconnect_delay)
             client.game_id = game_id
             client.player_id = player_id
             client.player_color = player_color
@@ -671,10 +835,14 @@ def main() -> None:
             asyncio.run(client.run())
         else:
             console.print("[red]✗ No saved auth token found. Starting new game instead.[/red]")
-            client = ChessClient(server_url, strategy, auth_file=args.auth_file)
+            client = ChessClient(server_url, strategy, auth_file=args.auth_file,
+                                 max_reconnect_attempts=args.max_reconnect_attempts,
+                                 reconnect_delay=args.reconnect_delay)
             asyncio.run(client.run())
     else:
-        client = ChessClient(server_url, strategy, auth_file=args.auth_file)
+        client = ChessClient(server_url, strategy, auth_file=args.auth_file,
+                             max_reconnect_attempts=args.max_reconnect_attempts,
+                             reconnect_delay=args.reconnect_delay)
         asyncio.run(client.run())
 
 
