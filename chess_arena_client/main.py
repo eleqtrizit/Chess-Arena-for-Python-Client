@@ -624,8 +624,8 @@ def main() -> None:
     Parse command-line arguments and start the chess client.
     """
     parser = argparse.ArgumentParser(description='Chess Arena Client - WebSocket Edition')
-    parser.add_argument('--search-time', type=float, default=5.0,
-                        help='Maximum search time per move in seconds (default: 5.0)')
+    parser.add_argument('--search-time', type=float, default=300.0,
+                        help='Maximum search time per move in seconds (default: 300.0)')
     parser.add_argument('--port', type=int, default=9002,
                         help='Server port (default: 9002)')
     parser.add_argument('--continue', dest='continue_game', action='store_true',
