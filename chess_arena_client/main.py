@@ -626,6 +626,8 @@ def main() -> None:
     parser = argparse.ArgumentParser(description='Chess Arena Client - WebSocket Edition')
     parser.add_argument('--search-time', type=float, default=300.0,
                         help='Maximum search time per move in seconds (default: 300.0)')
+    parser.add_argument('--host', type=str, default='localhost',
+                        help='Server host (default: localhost)')
     parser.add_argument('--port', type=int, default=9002,
                         help='Server port (default: 9002)')
     parser.add_argument('--continue', dest='continue_game', action='store_true',
@@ -637,7 +639,7 @@ def main() -> None:
 
     args = parser.parse_args()
 
-    server_url = f"http://localhost:{args.port}"
+    server_url = f"http://{args.host}:{args.port}"
 
     # Load strategy from file or use default
     if args.strategy:
