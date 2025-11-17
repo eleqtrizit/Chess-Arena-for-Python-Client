@@ -191,7 +191,7 @@ def main() -> None:
 
     # Handle --get-agent-prompt flag
     if args.get_agent_prompt:
-        agent_md_path = Path(__file__).parent.parent / "AGENT.md"
+        agent_md_path = Path(__file__).parent / "AGENT.md"
         try:
             with open(agent_md_path, 'r') as f:
                 print(f.read())
