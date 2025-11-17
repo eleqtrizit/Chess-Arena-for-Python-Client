@@ -203,7 +203,7 @@ class ChessClient:
 
     def __init__(self, server_url: str, strategy: StrategyBase, continue_game: bool = False,
                  auth_file: Optional[str] = None, max_reconnect_attempts: int = 5,
-                 reconnect_delay: float = 1.0):
+                 reconnect_delay: float = 5.0):
         self.server_url = server_url.replace('http://', 'ws://').replace('https://', 'wss://')
         self.strategy = strategy
         self.continue_game = continue_game
@@ -796,8 +796,8 @@ def main() -> None:
                         help='Path to custom strategy file (default: uses built-in strategy.py)')
     parser.add_argument('--max-reconnect-attempts', type=int, default=5,
                         help='Maximum number of reconnection attempts (default: 5)')
-    parser.add_argument('--reconnect-delay', type=float, default=1.0,
-                        help='Initial delay between reconnection attempts in seconds (default: 1.0)')
+    parser.add_argument('--reconnect-delay', type=float, default=5.0,
+                        help='Initial delay between reconnection attempts in seconds (default: 5.0)')
 
     args = parser.parse_args()
 
