@@ -64,6 +64,32 @@ class TestMain(unittest.TestCase):
         # A more comprehensive test would require mocking the WebSocket connection
         pass
 
+    def test_aggressive_reconnect_initialization(self):
+        """Test that aggressive reconnect can be enabled."""
+        from chess_arena_client.main import ChessClient
+        from chess_arena_client.strategy_base import StrategyBase
+
+        class DummyStrategy(StrategyBase):
+            def choose_move(self, board, legal_moves, player_color):
+                return legal_moves[0] if legal_moves else None
+
+        strategy = DummyStrategy(search_time=1.0)
+
+        # Test with aggressive reconnect disabled (default)
+        client_normal = ChessClient(
+            server_url="http://localhost:9002",
+            strategy=strategy
+        )
+        self.assertFalse(client_normal.aggressive_reconnect)
+
+        # Test with aggressive reconnect enabled
+        client_aggressive = ChessClient(
+            server_url="http://localhost:9002",
+            strategy=strategy,
+            aggressive_reconnect=True
+        )
+        self.assertTrue(client_aggressive.aggressive_reconnect)
+
 
 if __name__ == '__main__':
     unittest.main()

@@ -15,7 +15,11 @@ import os
 import sys
 import time
 from pathlib import Path
-from typing import Any, Dict, Optional, Tuple
+from typing import TYPE_CHECKING, Any, Dict, Optional, Tuple
+
+# Type alias for websocket connection
+if TYPE_CHECKING:
+    WebSocketConnection = Any
 
 import chess
 import websockets
@@ -201,10 +205,15 @@ class ChessClient:
     :type reconnect_delay: float
     """
 
+    # Task attributes
+    _receive_task: Optional[asyncio.Task]
+    _heartbeat_task: Optional[asyncio.Task]
+    _health_monitor_task: Optional[asyncio.Task]
+
     def __init__(self, server_url: str, strategy: StrategyBase, continue_game: bool = False,
                  auth_file: Optional[str] = None, max_reconnect_attempts: int = 5,
                  reconnect_delay: float = 5.0, timeout: Optional[float] = None,
-                 store_result_file: Optional[str] = None):
+                 store_result_file: Optional[str] = None, aggressive_reconnect: bool = False):
         self.server_url = server_url.replace('http://', 'ws://').replace('https://', 'wss://')
         self.strategy = strategy
         self.continue_game = continue_game
@@ -217,9 +226,15 @@ class ChessClient:
         self.auth_token: Optional[str] = None
         self.player_color: Optional[str] = None
         self.local_board = chess.Board()
-        self.websocket: Optional[websockets.WebSocketClientProtocol] = None
+        self.websocket: Optional['WebSocketConnection'] = None
         self.message_queue: asyncio.Queue = asyncio.Queue()
         self.store_result_file: Optional[str] = store_result_file
+        self.aggressive_reconnect = aggressive_reconnect
+
+        # Task attributes
+        self._receive_task: Optional[asyncio.Task] = None
+        self._heartbeat_task: Optional[asyncio.Task] = None
+        self._health_monitor_task: Optional[asyncio.Task] = None
 
         # Move timing tracking
         self.last_move_time: float = 0.0
@@ -257,11 +272,11 @@ class ChessClient:
 
                 # Restart background tasks
                 # Cancel existing tasks first
-                if hasattr(self, '_receive_task') and not self._receive_task.done():
+                if self._receive_task is not None and not self._receive_task.done():
                     self._receive_task.cancel()
-                if hasattr(self, '_heartbeat_task') and not self._heartbeat_task.done():
+                if self._heartbeat_task is not None and not self._heartbeat_task.done():
                     self._heartbeat_task.cancel()
-                if hasattr(self, '_health_monitor_task') and not self._health_monitor_task.done():
+                if self._health_monitor_task is not None and not self._health_monitor_task.done():
                     self._health_monitor_task.cancel()
 
                 # Start new background tasks
@@ -276,14 +291,33 @@ class ChessClient:
             if reconnect_attempt < self.max_reconnect_attempts:
                 console.print(f"[yellow]⚠ Reconnection failed:[/yellow] {str(e)}")
                 console.print(f"[yellow]Attempt {reconnect_attempt + 1}/{self.max_reconnect_attempts}...[/yellow]")
-                # Exponential backoff
-                delay = self.reconnect_delay * (2 ** reconnect_attempt)
+                # Exponential backoff with jitter to prevent thundering herd
+                import random
+                jitter = random.uniform(0, self.reconnect_delay * 0.1)  # 10% jitter
+                delay = self.reconnect_delay * (2 ** reconnect_attempt) + jitter
                 console.print(f"[dim]Waiting {delay:.1f}s before next attempt...[/dim]")
                 await asyncio.sleep(delay)
                 # Try again
                 return await self.reconnect_and_sync(reconnect_attempt + 1)
             else:
-                raise Exception(f"Reconnection failed after {self.max_reconnect_attempts} attempts: {str(e)}")
+                # Even after max attempts, keep trying indefinitely for critical
+                # operations if aggressive reconnect is enabled
+                if self.aggressive_reconnect:
+                    console.print(
+                        f"[red]✗ Reconnection failed after {self.max_reconnect_attempts} attempts: {str(e)}[/red]")
+                    console.print(
+                        "[yellow]⚠ Continuing with infinite retry for critical "
+                        "operations (aggressive mode)...[/yellow]")
+                    # Wait longer but keep trying indefinitely
+                    import random
+                    jitter = random.uniform(0, self.reconnect_delay * 0.1)  # 10% jitter
+                    delay = self.reconnect_delay * (2 ** (self.max_reconnect_attempts - 1)) + jitter
+                    console.print(f"[dim]Waiting {delay:.1f}s before next attempt (infinite retry)...[/dim]")
+                    await asyncio.sleep(delay)
+                    # Try again with reset attempt counter to avoid overflow
+                    return await self.reconnect_and_sync(0)
+                else:
+                    raise Exception(f"Reconnection failed after {self.max_reconnect_attempts} attempts: {str(e)}")
 
     async def send_message(self, message: Dict[str, Any]) -> None:
         """
@@ -310,17 +344,52 @@ class ChessClient:
         """
         Monitor connection health and detect timeouts.
         """
+        # Track consecutive timeout warnings
+        consecutive_timeouts = 0
+        max_consecutive_timeouts = 3  # Allow some grace period before forcing reconnection
+
         while self.websocket and self.health_check_enabled:
             try:
                 current_time = time.time()
-                if current_time - self.last_heartbeat_response > self.heartbeat_timeout:
-                    console.print("[red]✗ Server connection timeout - no response for health check[/red]")
-                    # Disable health checks to prevent further messages
-                    self.health_check_enabled = False
-                    # Close the websocket to trigger reconnection
-                    if self.websocket:
-                        await self.websocket.close()
-                    break
+                time_since_last_heartbeat = current_time - self.last_heartbeat_response
+
+                # Warning threshold - warn user before actual timeout
+                warning_threshold = self.heartbeat_timeout * 0.7  # 70% of timeout period
+
+                if time_since_last_heartbeat > warning_threshold:
+                    consecutive_timeouts += 1
+                    if consecutive_timeouts == 1:
+                        console.print(
+                            f"[yellow]⚠ Connection health warning - no response for health check "
+                            f"({time_since_last_heartbeat:.1f}s)[/yellow]")
+                    elif consecutive_timeouts <= max_consecutive_timeouts:
+                        console.print(
+                            f"[yellow]⚠ Still waiting for server response "
+                            f"({time_since_last_heartbeat:.1f}s elapsed)[/yellow]")
+
+                    # Force reconnection after multiple consecutive timeouts
+                    if time_since_last_heartbeat > self.heartbeat_timeout:
+                        if consecutive_timeouts >= max_consecutive_timeouts:
+                            console.print(
+                                f"[red]✗ Server connection timeout - no response for health check "
+                                f"({time_since_last_heartbeat:.1f}s)[/red]")
+                            # Disable health checks to prevent further messages
+                            self.health_check_enabled = False
+                            # Close the websocket to trigger reconnection
+                            if self.websocket:
+                                await self.websocket.close()
+                            break
+                        else:
+                            # Send additional health check to try to wake up the connection
+                            try:
+                                await self.send_message({"type": "health_check"})
+                                console.print("[dim]Sent additional health check...[/dim]")
+                            except Exception:
+                                pass  # Ignore send errors
+                else:
+                    # Reset consecutive timeout counter when we get responses
+                    consecutive_timeouts = 0
+
                 await asyncio.sleep(5)  # Check every 5 seconds
             except Exception:
                 break
@@ -580,6 +649,10 @@ class ChessClient:
                     # Wait for match
                     match_found = False
 
+                # Track queue retry attempts
+                queue_retry_count = 0
+                max_queue_retries = 5  # Maximum retries for queue timeout
+
                 while not match_found:
                     try:
                         if self.timeout is not None:
@@ -587,9 +660,29 @@ class ChessClient:
                         else:
                             msg = await self.message_queue.get()
                     except asyncio.TimeoutError:
-                        console.print(
-                            f"[red]✗ Timeout waiting for game to start ({self.timeout} seconds elapsed)[/red]")
-                        return  # Exit the run method, which will terminate the client
+                        # Instead of exiting, try rejoining queue with progressive timeout
+                        queue_retry_count += 1
+                        if queue_retry_count <= max_queue_retries:
+                            console.print(
+                                f"[yellow]⚠ Queue timeout ({self.timeout} seconds elapsed), "
+                                f"retrying... (attempt {queue_retry_count}/{max_queue_retries})[/yellow]")
+                            # Progressive timeout - increase wait time on each retry
+                            retry_delay = self.reconnect_delay * queue_retry_count
+                            console.print(f"[dim]Waiting {retry_delay:.1f}s before rejoining queue...[/dim]")
+                            await asyncio.sleep(retry_delay)
+
+                            # Rejoin queue
+                            await self.send_message({"type": "join_queue"})
+                            console.print("[dim]Rejoined matchmaking queue...[/dim]")
+
+                            # Increase timeout for next attempt to be more patient
+                            if self.timeout is not None:
+                                self.timeout = min(self.timeout * 1.5, 300.0)  # Cap at 5 minutes
+                        else:
+                            console.print(
+                                f"[red]✗ Queue timeout after {max_queue_retries} retries "
+                                f"({self.timeout} seconds elapsed)[/red]")
+                            return  # Exit the run method, which will terminate the client
 
                     msg_type = msg.get("type")
 
@@ -664,7 +757,9 @@ class ChessClient:
                         console.print(f"[dim]Legal moves ({len(legal_moves)}):[/dim] {', '.join(legal_moves[:10])}...")
 
                         move_start = time.time()
-                        chosen_move = self.strategy.choose_move(self.local_board, legal_moves, self.player_color)
+                        # Ensure player_color is not None (should be set after connecting to a game)
+                        player_color = self.player_color or "white"  # fallback to "white" if somehow None
+                        chosen_move = self.strategy.choose_move(self.local_board, legal_moves, player_color)
                         move_time = time.time() - move_start
 
                         # Check if move took too long
@@ -758,8 +853,10 @@ class ChessClient:
                                     console.print(f"[dim]Legal moves ({len(legal_moves)}):[/dim] {moves_preview}...")
 
                                     move_start = time.time()
+                                    # Ensure player_color is not None (should be set after connecting to a game)
+                                    player_color = self.player_color or "white"  # fallback to "white" if somehow None
                                     chosen_move = self.strategy.choose_move(
-                                        self.local_board, legal_moves, self.player_color)
+                                        self.local_board, legal_moves, player_color)
                                     move_time = time.time() - move_start
 
                                     # Check if move took too long
@@ -847,8 +944,10 @@ class ChessClient:
                                     f"[dim]Legal moves ({len(legal_moves)}):[/dim] {', '.join(legal_moves[:10])}...")
 
                                 move_start = time.time()
+                                # Ensure player_color is not None (should be set after connecting to a game)
+                                player_color = self.player_color or "white"  # fallback to "white" if somehow None
                                 chosen_move = self.strategy.choose_move(
-                                    self.local_board, legal_moves, self.player_color)
+                                    self.local_board, legal_moves, player_color)
                                 move_time = time.time() - move_start
 
                                 # Check if move took too long
@@ -881,11 +980,11 @@ class ChessClient:
                         continue
 
                 # Cancel background tasks
-                if hasattr(self, '_receive_task') and not self._receive_task.done():
+                if self._receive_task is not None and not self._receive_task.done():
                     self._receive_task.cancel()
-                if hasattr(self, '_heartbeat_task') and not self._heartbeat_task.done():
+                if self._heartbeat_task is not None and not self._heartbeat_task.done():
                     self._heartbeat_task.cancel()
-                if hasattr(self, '_health_monitor_task') and not self._health_monitor_task.done():
+                if self._health_monitor_task is not None and not self._health_monitor_task.done():
                     self._health_monitor_task.cancel()
 
         except KeyboardInterrupt:
@@ -951,6 +1050,8 @@ def main() -> None:
                         help='Timeout in seconds for waiting for a game to start (default: None for indefinite wait)')
     parser.add_argument('--store-result', type=str, default=None,
                         help='Path to file for storing game results in JSON format')
+    parser.add_argument('--aggressive-reconnect', action='store_true',
+                        help='Enable aggressive reconnection with infinite retries for critical operations')
 
     args = parser.parse_args()
 
@@ -981,7 +1082,8 @@ def main() -> None:
             client = ChessClient(server_url, strategy, continue_game=True, auth_file=args.auth_file,
                                  max_reconnect_attempts=args.max_reconnect_attempts,
                                  reconnect_delay=args.reconnect_delay, timeout=args.timeout,
-                                 store_result_file=args.store_result)
+                                 store_result_file=args.store_result,
+                                 aggressive_reconnect=args.aggressive_reconnect)
             client.game_id = game_id
             client.player_id = player_id
             client.player_color = player_color
@@ -992,13 +1094,15 @@ def main() -> None:
             client = ChessClient(server_url, strategy, auth_file=args.auth_file,
                                  max_reconnect_attempts=args.max_reconnect_attempts,
                                  reconnect_delay=args.reconnect_delay, timeout=args.timeout,
-                                 store_result_file=args.store_result)
+                                 store_result_file=args.store_result,
+                                 aggressive_reconnect=args.aggressive_reconnect)
             asyncio.run(client.run())
     else:
         client = ChessClient(server_url, strategy, auth_file=args.auth_file,
                              max_reconnect_attempts=args.max_reconnect_attempts,
                              reconnect_delay=args.reconnect_delay, timeout=args.timeout,
-                             store_result_file=args.store_result)
+                             store_result_file=args.store_result,
+                             aggressive_reconnect=args.aggressive_reconnect)
         asyncio.run(client.run())
 
 

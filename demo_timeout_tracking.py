@@ -44,7 +44,8 @@ if __name__ == "__main__":
 
     results = client.load_game_results()
     print(
-        f"Results after win: {results.get('wins', 0)} wins, {results.get('losses', 0)} losses, {results.get('timeouts', 0)} timeouts\n")
+        f"Results after win: {results.get('wins', 0)} wins, {results.get('losses', 0)} losses, "
+        f"{results.get('timeouts', 0)} timeouts\n")
 
     # Simulate a loss due to timeout
     print("Simulating a loss due to timeout...")
@@ -53,7 +54,8 @@ if __name__ == "__main__":
 
     results = client.load_game_results()
     print(
-        f"Results after timeout loss: {results.get('wins', 0)} wins, {results.get('losses', 0)} losses, {results.get('timeouts', 0)} timeouts\n")
+        f"Results after timeout loss: {results.get('wins', 0)} wins, {results.get('losses', 0)} losses, "
+        f"{results.get('timeouts', 0)} timeouts\n")
 
     # Simulate a draw
     print("Simulating a draw...")
@@ -61,7 +63,9 @@ if __name__ == "__main__":
     client.update_game_results("draw")
 
     results = client.load_game_results()
-    print(f"Results after draw: {results.get('wins', 0)} wins, {results.get('losses', 0)} losses, {results.get('draws', 0)} draws, {results.get('timeouts', 0)} timeouts\n")
+    print(
+        f"Results after draw: {results.get('wins', 0)} wins, {results.get('losses', 0)} losses, "
+        f"{results.get('draws', 0)} draws, {results.get('timeouts', 0)} timeouts\n")
 
     # Final summary
     print("=== Final Results ===")
@@ -70,7 +74,12 @@ if __name__ == "__main__":
     print(f"Losses: {final_results.get('losses', 0)}")
     print(f"Draws: {final_results.get('draws', 0)}")
     print(f"Timeouts: {final_results.get('timeouts', 0)}")
-    print(f"Win rate: {final_results.get('wins', 0) / max(1, final_results.get('wins', 0) + final_results.get('losses', 0) + final_results.get('draws', 0)) * 100:.1f}%")
-    print(f"Timeout rate: {final_results.get('timeouts', 0) / max(1, final_results.get('losses', 0)) * 100:.1f}% of losses")
+    win_rate = (final_results.get('wins', 0) /
+                max(1, final_results.get('wins', 0) + final_results.get('losses', 0) +
+                    final_results.get('draws', 0)) * 100)
+    print(f"Win rate: {win_rate:.1f}%")
+    timeout_rate = (final_results.get('timeouts', 0) /
+                    max(1, final_results.get('losses', 0)) * 100)
+    print(f"Timeout rate: {timeout_rate:.1f}% of losses")
     print(f"Total games: {len(final_results.get('game_ids', []))}")
     print(f"Game IDs: {final_results.get('game_ids', [])}")
