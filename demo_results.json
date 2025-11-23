@@ -1,0 +1,14 @@
+{
+  "wins": 3,
+  "losses": 2,
+  "draws": 1,
+  "timeouts": 1,
+  "game_ids": [
+    "game1",
+    "game2",
+    "game3",
+    "demo_game_win",
+    "demo_game_timeout_loss",
+    "demo_game_draw"
+  ]
+}

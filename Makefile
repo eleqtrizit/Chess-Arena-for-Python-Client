@@ -1,4 +1,4 @@
-.PHONY: help install dev test lint format clean
+.PHONY: help install dev test coverage lint format clean
 
 help:  ## Show this help message
 	@grep -E '^[a-zA-Z0-9_-]+:.*?## .*$$' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "\033[36m%-15s\033[0m %s\n", $$1, $$2}'
@@ -8,7 +8,10 @@ install:  ## Install package
 	uv sync
 
 test:  ## Run tests
-	pytest tests/ -v
+	uv run pytest tests/ -v
+
+coverage:  ## Run tests with coverage report
+	uv run pytest tests/ --cov=chess_arena_client --cov-report=html --cov-report=term-missing
 
 lint:  ## Run linters
 	flake8 chess_arena_client/ tests/

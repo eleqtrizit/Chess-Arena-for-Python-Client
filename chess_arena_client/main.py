@@ -203,13 +203,15 @@ class ChessClient:
 
     def __init__(self, server_url: str, strategy: StrategyBase, continue_game: bool = False,
                  auth_file: Optional[str] = None, max_reconnect_attempts: int = 5,
-                 reconnect_delay: float = 5.0):
+                 reconnect_delay: float = 5.0, timeout: Optional[float] = None,
+                 store_result_file: Optional[str] = None):
         self.server_url = server_url.replace('http://', 'ws://').replace('https://', 'wss://')
         self.strategy = strategy
         self.continue_game = continue_game
         self.auth_file = auth_file
         self.max_reconnect_attempts = max_reconnect_attempts
         self.reconnect_delay = reconnect_delay
+        self.timeout = timeout
         self.game_id: Optional[str] = None
         self.player_id: Optional[str] = None
         self.auth_token: Optional[str] = None
@@ -217,6 +219,11 @@ class ChessClient:
         self.local_board = chess.Board()
         self.websocket: Optional[websockets.WebSocketClientProtocol] = None
         self.message_queue: asyncio.Queue = asyncio.Queue()
+        self.store_result_file: Optional[str] = store_result_file
+
+        # Move timing tracking
+        self.last_move_time: float = 0.0
+        self.move_exceeded_time_limit: bool = False
 
         # Health check attributes
         self.last_heartbeat_response = time.time()
@@ -378,6 +385,94 @@ class ChessClient:
             except Exception as e:
                 console.print(f"[yellow]⚠ Failed to save auth token:[/yellow] {e}")
 
+    def load_game_results(self) -> Dict[str, Any]:
+        """
+        Load game results from file.
+
+        :return: Game results dictionary
+        :rtype: Dict[str, Any]
+        """
+        if not self.store_result_file:
+            return {}
+
+        try:
+            with open(self.store_result_file, 'r') as f:
+                return json.load(f)
+        except FileNotFoundError:
+            # File doesn't exist yet, return empty dict
+            return {}
+        except json.JSONDecodeError:
+            console.print(f"[yellow]⚠ Invalid JSON in results file: {self.store_result_file}[/yellow]")
+            return {}
+        except Exception as e:
+            console.print(f"[yellow]⚠ Failed to load game results:[/yellow] {e}")
+            return {}
+
+    def save_game_results(self, results: Dict[str, Any]) -> None:
+        """
+        Save game results to file.
+
+        :param results: Game results dictionary
+        :type results: Dict[str, Any]
+        :raises Exception: If save fails
+        """
+        if not self.store_result_file:
+            return
+
+        try:
+            with open(self.store_result_file, 'w') as f:
+                json.dump(results, f, indent=2)
+            console.print(f"[green]✓[/green] Game results saved to {self.store_result_file}")
+        except Exception as e:
+            console.print(f"[yellow]⚠ Failed to save game results:[/yellow] {e}")
+
+    def update_game_results(self, game_outcome: str, timeout_occurred: bool = False) -> None:
+        """
+        Update game results file with the outcome of the current game.
+
+        :param game_outcome: Outcome of the game ('win', 'loss', 'draw')
+        :type game_outcome: str
+        :param timeout_occurred: Whether the game was lost due to timeout
+        :type timeout_occurred: bool
+        """
+        if not self.store_result_file or not self.game_id:
+            return
+
+        # Load existing results
+        results = self.load_game_results()
+
+        # Initialize if empty
+        if not results:
+            results = {
+                "wins": 0,
+                "losses": 0,
+                "draws": 0,
+                "timeouts": 0,
+                "game_ids": []
+            }
+
+        # Update counts based on outcome
+        if game_outcome == "win":
+            results["wins"] = results.get("wins", 0) + 1
+        elif game_outcome == "loss":
+            results["losses"] = results.get("losses", 0) + 1
+        elif game_outcome == "draw":
+            results["draws"] = results.get("draws", 0) + 1
+
+        # Track timeouts
+        if timeout_occurred:
+            results["timeouts"] = results.get("timeouts", 0) + 1
+
+        # Add game ID to list if not already present
+        if "game_ids" not in results:
+            results["game_ids"] = []
+
+        if self.game_id not in results["game_ids"]:
+            results["game_ids"].append(self.game_id)
+
+        # Save updated results
+        self.save_game_results(results)
+
     async def sync_board_state(self, reconnect_attempt: int = 0) -> bool:
         """
         Request and sync current board state from server.
@@ -486,7 +581,16 @@ class ChessClient:
                     match_found = False
 
                 while not match_found:
-                    msg = await self.message_queue.get()
+                    try:
+                        if self.timeout is not None:
+                            msg = await asyncio.wait_for(self.message_queue.get(), timeout=self.timeout)
+                        else:
+                            msg = await self.message_queue.get()
+                    except asyncio.TimeoutError:
+                        console.print(
+                            f"[red]✗ Timeout waiting for game to start ({self.timeout} seconds elapsed)[/red]")
+                        return  # Exit the run method, which will terminate the client
+
                     msg_type = msg.get("type")
 
                     if msg_type == "match_found":
@@ -545,6 +649,10 @@ class ChessClient:
                 move_count = 0
                 game_over = False
 
+                # Reset move timing tracking for new game
+                self.last_move_time = 0.0
+                self.move_exceeded_time_limit = False
+
                 # If reconnecting and it's our turn, make a move
                 if self.continue_game and is_our_turn and not self.local_board.is_game_over():
                     legal_moves = [self.local_board.san(m) for m in self.local_board.legal_moves]
@@ -570,6 +678,10 @@ class ChessClient:
                             f"[bold green]➜ Chosen move:[/bold green] "
                             f"[bold white]{chosen_move}[/bold white] [dim](time: {move_time:.2f}s)[/dim]"
                         )
+
+                        # Track if this move was close to or exceeded the time limit
+                        self.last_move_time = move_time
+                        self.move_exceeded_time_limit = move_time > self.strategy.search_time
 
                         await self.send_message({
                             "type": "make_move",
@@ -609,10 +721,17 @@ class ChessClient:
                                     losing_color = "white" if self.local_board.turn else "black"
                                     if losing_color == self.player_color:
                                         console.print("[bold red]I lost :([/bold red]")
+                                        # Check if we lost due to timeout
+                                        timeout_occurred = self.move_exceeded_time_limit
+                                        self.update_game_results("loss", timeout_occurred)
                                     else:
                                         console.print("[bold green]I won :)[/bold green]")
+                                        self.update_game_results("win")
                                 elif "stalemate" in reason.lower() or "draw" in reason.lower():
                                     console.print("[yellow]Draw[/yellow]")
+                                    # Check if draw was due to timeout
+                                    timeout_occurred = self.move_exceeded_time_limit
+                                    self.update_game_results("draw", timeout_occurred)
 
                                 game_over = True
                                 continue
@@ -643,10 +762,21 @@ class ChessClient:
                                         self.local_board, legal_moves, self.player_color)
                                     move_time = time.time() - move_start
 
+                                    # Check if move took too long
+                                    if move_time > self.strategy.search_time:
+                                        console.print(
+                                            f"[bold orange]⚠ WARNING: Move took {move_time:.2f}s, "
+                                            f"exceeding time limit of {self.strategy.search_time:.2f}s![/bold orange]"
+                                        )
+
                                     console.print(
                                         f"[bold green]➜ Chosen move:[/bold green] "
                                         f"[bold white]{chosen_move}[/bold white] [dim](time: {move_time:.2f}s)[/dim]"
                                     )
+
+                                    # Track if this move was close to or exceeded the time limit
+                                    self.last_move_time = move_time
+                                    self.move_exceeded_time_limit = move_time > self.strategy.search_time
 
                                     # Send move
                                     await self.send_message({
@@ -674,9 +804,13 @@ class ChessClient:
                                 if winner == self.player_id:
                                     console.print("[green]✓ You win by forfeit![/green]")
                                     console.print("[bold green]I won :)[/bold green]")
+                                    self.update_game_results("win")
                                 else:
                                     console.print("[red]✗ You lost by forfeit[/red]")
                                     console.print("[bold red]I lost :([/bold red]")
+                                    # Check if forfeit was due to timeout
+                                    timeout_occurred = self.move_exceeded_time_limit
+                                    self.update_game_results("loss", timeout_occurred)
                             elif status == "disqualified":
                                 winner = msg.get("winner")
                                 disqualified_player = msg.get("disqualified_player")
@@ -684,10 +818,14 @@ class ChessClient:
                                 console.print(f"[red]Disqualification reason: {reason}[/red]")
                                 if disqualified_player == self.player_id:
                                     console.print("[red bold]✗ You were disqualified![/red bold]")
-                                    console.print("[bold red]I lost :([/bold red]")
+                                    console.print("[bold red]I lost :([/red bold]")
+                                    # Check if disqualification was due to timeout
+                                    timeout_occurred = "time" in reason.lower() or "timeout" in reason.lower()
+                                    self.update_game_results("loss", timeout_occurred)
                                 else:
                                     console.print("[green]✓ You win by opponent disqualification![/green]")
                                     console.print("[bold green]I won :)[/bold green]")
+                                    self.update_game_results("win")
                             game_over = True
 
                         elif msg_type == "error":
@@ -713,10 +851,21 @@ class ChessClient:
                                     self.local_board, legal_moves, self.player_color)
                                 move_time = time.time() - move_start
 
+                                # Check if move took too long
+                                if move_time > self.strategy.search_time:
+                                    console.print(
+                                        f"[bold orange]⚠ WARNING: Move took {move_time:.2f}s, "
+                                        f"exceeding time limit of {self.strategy.search_time:.2f}s![/bold orange]"
+                                    )
+
                                 console.print(
                                     f"[bold green]➜ Chosen move:[/bold green] [bold white]{chosen_move}[/bold white] "
                                     f"[dim](time: {move_time:.2f}s)[/dim]"
                                 )
+
+                                # Track if this move was close to or exceeded the time limit
+                                self.last_move_time = move_time
+                                self.move_exceeded_time_limit = move_time > self.strategy.search_time
 
                                 await self.send_message({
                                     "type": "make_move",
@@ -798,6 +947,10 @@ def main() -> None:
                         help='Maximum number of reconnection attempts (default: 5)')
     parser.add_argument('--reconnect-delay', type=float, default=5.0,
                         help='Initial delay between reconnection attempts in seconds (default: 5.0)')
+    parser.add_argument('-t', '--timeout', type=float, default=None,
+                        help='Timeout in seconds for waiting for a game to start (default: None for indefinite wait)')
+    parser.add_argument('--store-result', type=str, default=None,
+                        help='Path to file for storing game results in JSON format')
 
     args = parser.parse_args()
 
@@ -827,7 +980,8 @@ def main() -> None:
             # Create client with loaded auth data
             client = ChessClient(server_url, strategy, continue_game=True, auth_file=args.auth_file,
                                  max_reconnect_attempts=args.max_reconnect_attempts,
-                                 reconnect_delay=args.reconnect_delay)
+                                 reconnect_delay=args.reconnect_delay, timeout=args.timeout,
+                                 store_result_file=args.store_result)
             client.game_id = game_id
             client.player_id = player_id
             client.player_color = player_color
@@ -837,15 +991,16 @@ def main() -> None:
             console.print("[red]✗ No saved auth token found. Starting new game instead.[/red]")
             client = ChessClient(server_url, strategy, auth_file=args.auth_file,
                                  max_reconnect_attempts=args.max_reconnect_attempts,
-                                 reconnect_delay=args.reconnect_delay)
+                                 reconnect_delay=args.reconnect_delay, timeout=args.timeout,
+                                 store_result_file=args.store_result)
             asyncio.run(client.run())
     else:
         client = ChessClient(server_url, strategy, auth_file=args.auth_file,
                              max_reconnect_attempts=args.max_reconnect_attempts,
-                             reconnect_delay=args.reconnect_delay)
+                             reconnect_delay=args.reconnect_delay, timeout=args.timeout,
+                             store_result_file=args.store_result)
         asyncio.run(client.run())
 
 
 if __name__ == '__main__':
-    main()
     main()
