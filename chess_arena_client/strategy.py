@@ -244,7 +244,7 @@ class Strategy(StrategyBase):
         best_move = None
 
         if maximizing:
-            max_eval = float('-inf')
+            max_eval = -1000000
             for move in ordered_moves:
                 # Make move
                 board.push(move)
@@ -263,9 +263,9 @@ class Strategy(StrategyBase):
                 if beta <= alpha:
                     break  # Beta cutoff
 
-            return int(max_eval), best_move
+            return max_eval, best_move
         else:
-            min_eval = float('inf')
+            min_eval = 1000000
             for move in ordered_moves:
                 # Make move
                 board.push(move)
@@ -284,7 +284,7 @@ class Strategy(StrategyBase):
                 if beta <= alpha:
                     break  # Alpha cutoff
 
-            return int(min_eval), best_move
+            return min_eval, best_move
 
     def choose_move(self, board: chess.Board, legal_moves: List[str], player_color: str) -> str:
         """
@@ -325,8 +325,8 @@ class Strategy(StrategyBase):
                 eval_score, best_move_obj = self.minimax(
                     search_board,
                     depth,
-                    int(float('-inf')),
-                    int(float('inf')),
+                    -1000000,
+                    1000000,
                     maximizing,
                     start_time
                 )
